@@ -53,6 +53,7 @@ def createBaseService(config):
         amqp_verbose = settings.get("AMQP_VERBOSE", False)
         amqp_vhost = settings.get("AMQP_VHOST", "/")
         amqp_spec = settings.get("AMQP_SPEC", None)
+        amqp_queue_name = settings.get("AMQP_QUEUE", "graphite")
         amqp_exchange_name = settings.get("AMQP_EXCHANGE", "graphite")
 
     for interface, port, backlog, protocol in ((settings.LINE_RECEIVER_INTERFACE,
@@ -79,6 +80,7 @@ def createBaseService(config):
         factory = amqp_listener.createAMQPListener(
             amqp_user, amqp_password,
             vhost=amqp_vhost, spec=amqp_spec,
+            queue_name=amqp_queue_name,
             exchange_name=amqp_exchange_name,
             verbose=amqp_verbose)
         service = TCPClient(amqp_host, int(amqp_port), factory)

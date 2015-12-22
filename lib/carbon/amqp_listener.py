@@ -87,13 +87,20 @@ class AMQPGraphiteProtocol(AMQClient):
         yield wfd
 
         # declare the exchange and queue
-        d = chan.exchange_declare(exchange=exchange, type="topic",
+        d = chan.exchange_declare(exchange=exchange, type="fanout",
                                   durable=True, auto_delete=False)
         wfd = waitForDeferred(d)
         yield wfd
 
-        # we use a private queue to avoid conflicting with existing bindings
-        wfd = waitForDeferred(chan.queue_declare(exclusive=True))
+        # If queue_name is specified, use that as durable and non-exclusive queue
+        # that allow to keep metrics on amqp even when there isn't any consumer
+        # running
+        if self.factory.queue_name:
+            wfd = waitForDeferred(chan.queue_declare(queue=self.factory.queue_name,durable=True))
+        else:
+            # we use a private queue to avoid conflicting with existing bindings
+            wfd = waitForDeferred(chan.queue_declare(exclusive=True))
+
         yield wfd
         reply = wfd.getResult()
         my_queue = reply.queue
@@ -164,13 +171,14 @@ class AMQPReconnectingFactory(ReconnectingClientFactory):
     protocol = AMQPGraphiteProtocol
 
     def __init__(self, username, password, delegate, vhost, spec, channel,
-                 exchange_name, verbose):
+                 queue_name, exchange_name, verbose):
         self.username = username
         self.password = password
         self.delegate = delegate
         self.vhost = vhost
         self.spec = spec
         self.channel = channel
+        self.queue_name = queue_name
         self.exchange_name = exchange_name
         self.verbose = verbose
 
@@ -180,7 +188,7 @@ class AMQPReconnectingFactory(ReconnectingClientFactory):
         return p
 
 
-def createAMQPListener(username, password, vhost, exchange_name,
+def createAMQPListener(username, password, vhost, queue_name, exchange_name,
                        spec=None, channel=1, verbose=False):
     """
     Create an C{AMQPReconnectingFactory} configured with the specified options.
@@ -192,18 +200,18 @@ def createAMQPListener(username, password, vhost, exchange_name,
 
     delegate = TwistedDelegate()
     factory = AMQPReconnectingFactory(username, password, delegate, vhost,
-                                      spec, channel, exchange_name,
+                                      spec, channel, queue_name, exchange_name,
                                       verbose=verbose)
     return factory
 
 
-def startReceiver(host, port, username, password, vhost, exchange_name,
+def startReceiver(host, port, username, password, vhost, queue_name, exchange_name,
                   spec=None, channel=1, verbose=False):
     """
     Starts a twisted process that will read messages on the amqp broker and
     post them as metrics.
     """
-    factory = createAMQPListener(username, password, vhost, exchange_name,
+    factory = createAMQPListener(username, password, vhost, queue_name, exchange_name,
                                  spec=spec, channel=channel, verbose=verbose)
     reactor.connectTCP(host, port, factory)
 
@@ -233,6 +241,10 @@ def main():
                       help="exchange", metavar="EXCHANGE",
                       default="graphite")
 
+    parser.add_option("-q", "--queue", dest="queue",
+                      help="queue", metavar="QUEUE",
+                      default="graphite")
+
     parser.add_option("-v", "--verbose", dest="verbose",
                       help="verbose",
                       default=False, action="store_true")
@@ -241,7 +253,7 @@ def main():
 
 
     startReceiver(options.host, options.port, options.username,
-                  options.password, vhost=options.vhost,
+                  options.password, vhost=options.vhost, queue_name=options.queue,
                   exchange_name=options.exchange, verbose=options.verbose)
     reactor.run()
 
